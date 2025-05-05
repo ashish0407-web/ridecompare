@@ -1,0 +1,36 @@
+{
+  "name": "RideCompare India - Compare Ride Fares",
+  "short_name": "RideCompare",
+  "description": "Compare ride fares across multiple providers and find the best deal in India",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0F172A",
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "prefer_related_applications": true,
+  "related_applications": [
+    {
+      "platform": "play",
+      "id": "com.uber.android"
+    },
+    {
+      "platform": "play",
+      "id": "com.olacabs.customer"
+    },
+    {
+      "platform": "play",
+      "id": "com.rapido.passenger"
+    }
+  ]
+}
