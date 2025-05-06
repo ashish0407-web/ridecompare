@@ -5,14 +5,15 @@ import type React from "react"
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { MapPin, Calendar, Clock, Mic, PlusCircle, MinusCircle, Locate } from "lucide-react"
+import { Calendar, Clock, PlusCircle, MinusCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useLocation } from "@/components/location-provider"
 import { useToast } from "@/components/ui/use-toast"
-import { Skeleton } from "@/components/ui/skeleton"
+import { Input } from "@/components/ui/input"
+import { LocationSearch } from "@/components/location-search"
+import { useAuth } from "@/components/auth-provider"
 
 interface SearchFormProps {
   className?: string
@@ -21,19 +22,23 @@ interface SearchFormProps {
 interface LocationInput {
   id: string
   value: string
+  placeId?: string
+  coordinates?: { lat: number; lng: number }
 }
 
 export function SearchForm({ className }: SearchFormProps) {
   const router = useRouter()
   const { toast } = useToast()
   const { currentLocation, isLoading: locationLoading, error: locationError, requestLocation } = useLocation()
+  const { user } = useAuth()
 
-  const [pickup, setPickup] = useState("")
-  const [destination, setDestination] = useState("")
-  const [isMultiRoute, setIsMultiRoute] = useState(false)
+  const [pickup, setPickup] = useState<LocationInput>({ id: "pickup", value: "" })
+  const [destination, setDestination] = useState<LocationInput>({ id: "destination", value: "" })
   const [intermediateStops, setIntermediateStops] = useState<LocationInput[]>([])
   const [isListening, setIsListening] = useState(false)
   const [activeInput, setActiveInput] = useState<string | null>(null)
+  const [date, setDate] = useState<string>("")
+  const [time, setTime] = useState<string>("")
 
   // Handle location detection
   useEffect(() => {
@@ -70,9 +75,9 @@ export function SearchForm({ className }: SearchFormProps) {
       const transcript = event.results[0][0].transcript
 
       if (inputId === "pickup") {
-        setPickup(transcript)
+        setPickup({ ...pickup, value: transcript })
       } else if (inputId === "destination") {
-        setDestination(transcript)
+        setDestination({ ...destination, value: transcript })
       } else {
         // For intermediate stops
         setIntermediateStops((prev) =>
@@ -104,9 +109,14 @@ export function SearchForm({ className }: SearchFormProps) {
 
     if (currentLocation) {
       // In a real app, we would use reverse geocoding to get the address
-      // For now, we'll just use the coordinates
-      const locationString = `${currentLocation.latitude.toFixed(6)}, ${currentLocation.longitude.toFixed(6)}`
-      setPickup(locationString)
+      setPickup({
+        ...pickup,
+        value: "Current Location",
+        coordinates: {
+          lat: currentLocation.latitude,
+          lng: currentLocation.longitude,
+        },
+      })
 
       toast({
         title: "Location Detected",
@@ -117,21 +127,56 @@ export function SearchForm({ className }: SearchFormProps) {
 
   const addIntermediateStop = () => {
     setIntermediateStops((prev) => [...prev, { id: `stop-${Date.now()}`, value: "" }])
-    setIsMultiRoute(true)
   }
 
   const removeIntermediateStop = (id: string) => {
     setIntermediateStops((prev) => prev.filter((stop) => stop.id !== id))
-    if (intermediateStops.length <= 1) {
-      setIsMultiRoute(false)
-    }
   }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (pickup && destination) {
+
+    if (!user) {
+      toast({
+        title: "Login Required",
+        description: "Please login to compare ride fares.",
+      })
+      router.push("/auth/login")
+      return
+    }
+
+    if (pickup.value && destination.value) {
       // In a real app, we would encode the route information in the URL or state
-      router.push("/results")
+      const searchParams = new URLSearchParams()
+
+      if (pickup.coordinates) {
+        searchParams.set("pickupLat", pickup.coordinates.lat.toString())
+        searchParams.set("pickupLng", pickup.coordinates.lng.toString())
+      }
+      searchParams.set("pickup", pickup.value)
+
+      if (destination.coordinates) {
+        searchParams.set("destLat", destination.coordinates.lat.toString())
+        searchParams.set("destLng", destination.coordinates.lng.toString())
+      }
+      searchParams.set("destination", destination.value)
+
+      // Add intermediate stops if any
+      if (intermediateStops.length > 0) {
+        intermediateStops.forEach((stop, index) => {
+          searchParams.set(`stop${index}`, stop.value)
+          if (stop.coordinates) {
+            searchParams.set(`stop${index}Lat`, stop.coordinates.lat.toString())
+            searchParams.set(`stop${index}Lng`, stop.coordinates.lng.toString())
+          }
+        })
+      }
+
+      // Add date and time if scheduled
+      if (date) searchParams.set("date", date)
+      if (time) searchParams.set("time", time)
+
+      router.push(`/results?${searchParams.toString()}`)
     } else {
       toast({
         title: "Missing Information",
@@ -154,109 +199,53 @@ export function SearchForm({ className }: SearchFormProps) {
           </TabsList>
           <TabsContent value="now">
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="flex items-center gap-2">
-                <MapPin className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-                <div className="flex-1 flex gap-2">
-                  <Input
-                    placeholder="Pickup location"
-                    value={pickup}
-                    onChange={(e) => setPickup(e.target.value)}
-                    required
-                    id="pickup"
-                  />
-                  <div className="flex gap-1">
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      type="button"
-                      onClick={() => startListening("pickup")}
-                      className={cn(
-                        activeInput === "pickup" && isListening ? "bg-primary text-primary-foreground" : "",
-                      )}
-                    >
-                      <Mic className="h-4 w-4" />
-                      <span className="sr-only">Voice input for pickup</span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      type="button"
-                      onClick={detectCurrentLocation}
-                      disabled={locationLoading}
-                    >
-                      {locationLoading ? <Skeleton className="h-4 w-4 rounded-full" /> : <Locate className="h-4 w-4" />}
-                      <span className="sr-only">Use current location</span>
-                    </Button>
-                  </div>
-                </div>
-              </div>
+              <LocationSearch
+                id="pickup"
+                value={pickup.value}
+                onChange={(value, placeId, coordinates) => setPickup({ ...pickup, value, placeId, coordinates })}
+                placeholder="Pickup location"
+                onVoiceInput={() => startListening("pickup")}
+                onLocationDetect={detectCurrentLocation}
+                isListening={isListening && activeInput === "pickup"}
+              />
 
-              {isMultiRoute &&
-                intermediateStops.map((stop) => (
-                  <div key={stop.id} className="flex items-center gap-2">
-                    <MapPin className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-                    <div className="flex-1 flex gap-2">
-                      <Input
-                        placeholder="Intermediate stop"
-                        value={stop.value}
-                        onChange={(e) =>
-                          setIntermediateStops((prev) =>
-                            prev.map((s) => (s.id === stop.id ? { ...s, value: e.target.value } : s)),
-                          )
-                        }
-                        id={stop.id}
-                      />
-                      <div className="flex gap-1">
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          type="button"
-                          onClick={() => startListening(stop.id)}
-                          className={cn(
-                            activeInput === stop.id && isListening ? "bg-primary text-primary-foreground" : "",
-                          )}
-                        >
-                          <Mic className="h-4 w-4" />
-                          <span className="sr-only">Voice input for stop</span>
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          type="button"
-                          onClick={() => removeIntermediateStop(stop.id)}
-                        >
-                          <MinusCircle className="h-4 w-4" />
-                          <span className="sr-only">Remove stop</span>
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-
-              <div className="flex items-center gap-2">
-                <MapPin className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-                <div className="flex-1 flex gap-2">
-                  <Input
-                    placeholder="Destination"
-                    value={destination}
-                    onChange={(e) => setDestination(e.target.value)}
-                    required
-                    id="destination"
+              {intermediateStops.map((stop) => (
+                <div key={stop.id} className="flex items-center gap-2">
+                  <LocationSearch
+                    id={stop.id}
+                    value={stop.value}
+                    onChange={(value, placeId, coordinates) =>
+                      setIntermediateStops((prev) =>
+                        prev.map((s) => (s.id === stop.id ? { ...s, value, placeId, coordinates } : s)),
+                      )
+                    }
+                    placeholder="Intermediate stop"
+                    onVoiceInput={() => startListening(stop.id)}
+                    isListening={isListening && activeInput === stop.id}
                   />
                   <Button
                     variant="outline"
                     size="icon"
                     type="button"
-                    onClick={() => startListening("destination")}
-                    className={cn(
-                      activeInput === "destination" && isListening ? "bg-primary text-primary-foreground" : "",
-                    )}
+                    onClick={() => removeIntermediateStop(stop.id)}
+                    className="flex-shrink-0"
                   >
-                    <Mic className="h-4 w-4" />
-                    <span className="sr-only">Voice input for destination</span>
+                    <MinusCircle className="h-4 w-4" />
+                    <span className="sr-only">Remove stop</span>
                   </Button>
                 </div>
-              </div>
+              ))}
+
+              <LocationSearch
+                id="destination"
+                value={destination.value}
+                onChange={(value, placeId, coordinates) =>
+                  setDestination({ ...destination, value, placeId, coordinates })
+                }
+                placeholder="Destination"
+                onVoiceInput={() => startListening("destination")}
+                isListening={isListening && activeInput === "destination"}
+              />
 
               <Button
                 type="button"
@@ -275,71 +264,40 @@ export function SearchForm({ className }: SearchFormProps) {
           </TabsContent>
           <TabsContent value="later">
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="flex items-center gap-2">
-                <MapPin className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-                <div className="flex-1 flex gap-2">
-                  <Input
-                    placeholder="Pickup location"
-                    value={pickup}
-                    onChange={(e) => setPickup(e.target.value)}
-                    required
-                  />
-                  <div className="flex gap-1">
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      type="button"
-                      onClick={() => startListening("pickup")}
-                      className={cn(
-                        activeInput === "pickup" && isListening ? "bg-primary text-primary-foreground" : "",
-                      )}
-                    >
-                      <Mic className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      type="button"
-                      onClick={detectCurrentLocation}
-                      disabled={locationLoading}
-                    >
-                      {locationLoading ? <Skeleton className="h-4 w-4 rounded-full" /> : <Locate className="h-4 w-4" />}
-                    </Button>
-                  </div>
-                </div>
-              </div>
+              <LocationSearch
+                id="pickup-scheduled"
+                value={pickup.value}
+                onChange={(value, placeId, coordinates) => setPickup({ ...pickup, value, placeId, coordinates })}
+                placeholder="Pickup location"
+                onVoiceInput={() => startListening("pickup")}
+                onLocationDetect={detectCurrentLocation}
+                isListening={isListening && activeInput === "pickup"}
+              />
 
-              <div className="flex items-center gap-2">
-                <MapPin className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-                <div className="flex-1 flex gap-2">
-                  <Input
-                    placeholder="Destination"
-                    value={destination}
-                    onChange={(e) => setDestination(e.target.value)}
-                    required
-                  />
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    type="button"
-                    onClick={() => startListening("destination")}
-                    className={cn(
-                      activeInput === "destination" && isListening ? "bg-primary text-primary-foreground" : "",
-                    )}
-                  >
-                    <Mic className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
+              <LocationSearch
+                id="destination-scheduled"
+                value={destination.value}
+                onChange={(value, placeId, coordinates) =>
+                  setDestination({ ...destination, value, placeId, coordinates })
+                }
+                placeholder="Destination"
+                onVoiceInput={() => startListening("destination")}
+                isListening={isListening && activeInput === "destination"}
+              />
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="flex items-center gap-2">
                   <Calendar className="h-5 w-5 text-muted-foreground" />
-                  <Input type="date" min={new Date().toISOString().split("T")[0]} />
+                  <Input
+                    type="date"
+                    min={new Date().toISOString().split("T")[0]}
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                  />
                 </div>
                 <div className="flex items-center gap-2">
                   <Clock className="h-5 w-5 text-muted-foreground" />
-                  <Input type="time" />
+                  <Input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
                 </div>
               </div>
 

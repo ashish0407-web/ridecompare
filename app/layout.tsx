@@ -6,6 +6,7 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { AuthProvider } from "@/components/auth-provider"
 import { Toaster } from "@/components/ui/toaster"
 import { LocationProvider } from "@/components/location-provider"
+import { LeafletProvider } from "@/components/leaflet-provider"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -27,10 +28,12 @@ export default function RootLayout({
       <body className={inter.className}>
         <AuthProvider>
           <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-            <LocationProvider>
-              {children}
-              <Toaster />
-            </LocationProvider>
+            <LeafletProvider>
+              <LocationProvider>
+                {children}
+                <Toaster />
+              </LocationProvider>
+            </LeafletProvider>
           </ThemeProvider>
         </AuthProvider>
       </body>
